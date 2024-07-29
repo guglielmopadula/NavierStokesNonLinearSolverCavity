@@ -70,8 +70,7 @@ K = bmat([[A, -B.T],
 b=np.concatenate((b,np.zeros(C.shape[1])))
 
 x=solve(K,b)
-print(A.shape)
-print(B.shape)
+
 u=x[:2178]
 
 np.save("stokes.npy",x)
