@@ -49,10 +49,9 @@ wall_basis = FacetBasis(mesh, element['u'], facets=np.concatenate((mesh.boundari
 wall_basis=wall_basis.project(wall)
 
 
-
-
-A = asm(vector_laplace, basis['u'])
-B = asm(divergence, basis['u'], basis['p'])
+@BilinearForm
+def mass(u,v,w):
+    return dot(u,v)
 
 
 
@@ -64,14 +63,16 @@ def matmul(u,v):
 def c(u, v, w, _):
     return dot(matmul(grad(u), v),w)
 
-
-
+A = asm(vector_laplace, basis['u'])
+B = asm(divergence, basis['u'], basis['p'])
 C=asm(c, basis['u'])
 
 
 B=B
 
 A,b = enforce(A,b=np.zeros(A.shape[0]),x=up_basis,D=up_dofs_u)
+
+
 C=COO(C.indices,C.data,shape=C.shape)
 
 
@@ -107,6 +108,12 @@ Bt=B.T
 
 N=A.shape[1]+B.shape[1]
 
+arr=np.load("stokes.npy")
+
+mu_vec=np.linspace(100,1000,600)
+
+'''
+
 mu=1
 
 arr=np.load("stokes.npy")
@@ -138,7 +145,6 @@ mu_vec=np.linspace(100,1000,600)
 
 
 
-'''
 all_data=np.zeros((600,arr.shape[0]))
 all_data=np.load("all_data.npy")
 
@@ -165,7 +171,6 @@ for i in trange(600):
     all_data[i]=res.x
 
 np.save("all_data.npy",all_data)
-'''
 
 def compute_loss(mu,x):
     u=x[:2178]
@@ -181,42 +186,14 @@ data=np.load("all_data.npy")
 
 loss=0
 
-'''
+
 for i in trange(600):
     loss=loss+1/(600)*compute_loss(mu_vec[i],data[i])
 print(loss)
-'''
-
-time_sim=np.zeros((100,arr.shape[0]))
-
-time_sim[0]=arr
-time_sim[0,:2178]=b[:2178]
 
 
 '''
-for i in trange(1,100):
-    def compute_loss(x):
-        u=x[:2178]
-        p=x[2178:]
-        return np.linalg.norm((u-time_sim[i-1,:2178])/(mu_vec[0])+(1/mu_vec[0])*C.dot(u).dot(u)+A.dot(u)-B.dot(p)-b)**2+np.linalg.norm(Bt.dot(u))**2
 
-    def jac(x):
-        u=x[:2178]
-        p=x[2178:]
-        l=(u-time_sim[i-1,:2178])/(mu_vec[0]*0.01)+1/mu_vec[0]*(C.dot(u).dot(u))+A.dot(u)-B.dot(p)-b
-        tmp=(1)/(mu_vec[0]*0.01)+(C.dot(u)+C_T.dot(u))*(1/mu_vec[0])+A
-        bb=np.asarray((B.multiply(B)).sum(axis=1)).reshape(-1)
-        grad_u=np.asarray(np.sum(l*tmp,axis=0)).reshape(-1)+2*u*bb
-        l=csr_matrix(l).transpose()
-        grad_p=np.asarray(np.sum(B.multiply(l),axis=0)).reshape(-1)
-        return np.concatenate((grad_u,grad_p))
-        
-
-    res=minimize(compute_loss,arr,options={'disp': True, 'maxiter': 1000}, jac=jac, method='L-BFGS-B')
-    time_sim[i]=res.x
-
-np.save("time_sim.npy",time_sim)
-'''
 
 
 
@@ -235,6 +212,7 @@ C_jax=sparse.BCOO((jnp.array(C_data),jnp.array(C_coords)),shape=C.shape)
 Bt_jax=B_jax.T
 b_jax=jnp.array(b)
 
+
 def init_params(layers):
     params=jnp.ones(0)
     l=[]
@@ -252,7 +230,7 @@ def init_params(layers):
         params=np.concatenate((params,B_fwd_mean))
         l.append(len(params))
     return params,l
-
+'''
 data=np.load("all_data.npy")
 
 
@@ -287,7 +265,7 @@ def loss(x,y,parameter):
     return (jnp.linalg.norm(model(x,parameter).reshape(-1)-y.reshape(-1))**2).reshape(-1)[0]
 
 loss=jax.jit(jax.value_and_grad(loss,argnums=2))
-'''
+
 for epochs in trange(2000):
     tot_val=0
     grad_tot=0
@@ -303,9 +281,12 @@ for epochs in trange(2000):
 
 
 np.save("params.npy",params)
-'''
 
-layers=((1,500),
+
+layers=((1,500),A_jax=sparse.BCOO((jnp.array(A_data),jnp.array(A_coords)),shape=A.shape)
+M1_jax=sparse.BCOO((jnp.array(A_data),jnp.array(A_coords)),shape=A.shape)
+M2_jax=sparse.BCOO((jnp.array(A_data),jnp.array(A_coords)),shape=A.shape)
+
         (500,500),
         (500,500),
         (500,2467))
@@ -337,12 +318,12 @@ def compute_loss(mu,x):
     return np.linalg.norm((1/mu)*C.dot(u).dot(u)+A.dot(u)-B.dot(p)-b)**2+np.linalg.norm(Bt.dot(u))**2
 
 loss=0
-'''
+
 for i in trange(600):
     loss=loss+1/600*compute_loss(mu_vec[i],data[i])
 
 print(loss)
-'''
+
 
 u=jnp.array(arr[:2178])
 p=jnp.array(arr[2178:])
@@ -360,7 +341,6 @@ optimizer = optax.adam(1e-04)
 opt_state = optimizer.init(params)
 
 dem=np.sqrt(1/len(data)*(1/data.shape[1])*(np.linalg.norm(data)**2))
-'''
 for epochs in trange(5):
     tot_val=0
     l2_err=0
@@ -383,22 +363,65 @@ for epochs in trange(5):
 np.save("params_dispinn.npy",params)
 '''
 
+@LinearForm
+def start(v,w):
+    x,y=w.x
+    f= (np.abs(y-1)<0.001)*np.array([1.,0.]) + np.array([0.,0.])
+    return dot(f,v)
 
-shape = tuple(A.shape)
-indices=A_coords.reshape(1,-1,2)
-nse, n_sparse = indices.shape[-2:]
-n_batch = len(indices.shape) - 2
-n_dense = len(shape) - n_batch - n_sparse
+time_sim=np.zeros((100,arr.shape[0]))
+M = asm(mass, basis['u'])
+
+start_vec=np.zeros_like(arr)
 
 
 
-def fwd1(mu,u,p):
-    return (1/mu)*((C_jax@u)@u).reshape(-1)+(A_jax@u).reshape(-1)-(B_jax@p).reshape(-1)-b_jax
+for elem in up_dofs_u:
+    M[:,elem]=0
+
+
+
+
+'''
+
+for i in trange(1,100):
+    def compute_loss(x):
+        u=x[:2178]
+        p=x[2178:]
+        return np.linalg.norm((M.dot(u)-M.dot(time_sim[i-1,:2178]))/(mu_vec[0])+(1/mu_vec[0])*C.dot(u).dot(u)+A.dot(u)-B.dot(p)-b)**2+np.linalg.norm(Bt.dot(u))**2
+
+    def jac(x):
+        u=x[:2178]
+        p=x[2178:]
+        l=(M.dot(u)-M.dot(time_sim[i-1,:2178]))/(mu_vec[0])+1/mu_vec[0]*(C.dot(u).dot(u))+A.dot(u)-B.dot(p)-b
+        tmp=(M)/(mu_vec[0])+(C.dot(u)+C_T.dot(u))*(1/mu_vec[0])+A
+        bb=np.asarray((B.multiply(B)).sum(axis=1)).reshape(-1)
+        grad_u=np.asarray(np.sum(l*tmp,axis=0)).reshape(-1)+2*u*bb
+        l=csr_matrix(l).transpose()
+        grad_p=np.asarray(np.sum(B.multiply(l),axis=0)).reshape(-1)
+        return np.concatenate((grad_u,grad_p))
+        
+
+    res=minimize(compute_loss,arr,options={'disp': True, 'maxiter': 1000}, jac=jac, method='L-BFGS-B')
+    time_sim[i]=res.x
+
+np.save("time_sim.npy",time_sim)
+'''
+
+M=M.tocoo()
+
+M_coords=np.concatenate((M.row.reshape(-1,1),M.col.reshape(-1,1)),axis=1)
+
+M_jax=sparse.BCOO((jnp.array(M.data),jnp.array(M_coords)),shape=M.shape)
+
+
+def fwd1(mu,u,p,v):
+    return 1/mu*(M_jax@(u-v))+(1/mu)*((C_jax@u)@u).reshape(-1)+(A_jax@u).reshape(-1)-(B_jax@p).reshape(-1)-b_jax
 
 def fwd2(u):
     return Bt_jax@u
 
-fwd1=jax.vmap(fwd1,(None,0,0))
+fwd1=jax.vmap(fwd1,(None,0,0,0))
 fwd2=jax.vmap(fwd2)
 
 layers=((1,500),
@@ -426,13 +449,15 @@ def model(x,parameter):
             y_mean=jax.nn.gelu(y_mean)
     return y_mean.reshape(-1)
 
-
-u_add=jnp.concatenate((b_jax[:2178].reshape(1,-1),jnp.tile(arr[:2178].reshape(1,-1),(99,1))),axis=0)
+start_vec_jax=jnp.array(start_vec)
+u_add=jnp.concatenate((start_vec_jax[:2178].reshape(1,-1),jnp.tile(arr[:2178].reshape(1,-1),(99,1))),axis=0)
+p_add=jnp.concatenate((start_vec_jax[2178:].reshape(1,-1),jnp.tile(arr[2178:].reshape(1,-1),(99,1))),axis=0)
+start_vec_jax=start_vec_jax[:2178]
 def compute_loss(mu,params):
     x=model(mu,params).reshape(100,-1)
     u=x[:,:2178]+u_add
-    p=x[:,2178:]+arr[2178:].reshape(1,-1)
-    loss=((1/100)*jnp.linalg.norm((u[1:]-u[:-1])/mu+fwd1(mu,u[1:],p[1:]))**2+jnp.linalg.norm(fwd2(u[1:]))**2).reshape(-1)[0]+(jnp.linalg.norm(u[0]-b_jax)**2).reshape(-1)[0]
+    p=x[:,2178:]+p_add
+    loss=(1/100)*(jnp.linalg.norm((fwd1(mu,u[1:],p[1:],u[:-1]))**2+jnp.linalg.norm(fwd2(u[1:]))**2).reshape(-1)[0]+(jnp.linalg.norm(u[0]-start_vec_jax)**2)).reshape(-1)[0]
     return loss
 
 compute_loss=jax.jit(jax.value_and_grad(compute_loss,argnums=1))
@@ -440,26 +465,22 @@ compute_loss=jax.jit(jax.value_and_grad(compute_loss,argnums=1))
 optimizer = optax.adam(1e-04)
 opt_state = optimizer.init(params)
 
-dem=np.sqrt(1/len(data)*(1/data.shape[1])*(100*np.linalg.norm(data)**2))
-
 
 time_sim=np.load("time_sim.npy").reshape(-1)
 
-
-tmp=jnp.tile(arr[2178:].reshape(1,-1),(100,1))
-tmp=jnp.concatenate((u_add,tmp),axis=1).reshape(-1)
+tmp=jnp.concatenate((u_add,p_add),axis=1).reshape(-1)
 for epochs in trange(3):
     tot_val=0
     l2_err=0
     grad_tot=0
     val=model(jnp.array([mu_vec[0]]),params).reshape(-1)+tmp
     print("L2 loss:", np.linalg.norm(val-time_sim)/np.linalg.norm(time_sim))
-    for i in trange(1,len(data)):
+    for i in trange(1,len(mu_vec)):
         value,grad=compute_loss(jnp.array([mu_vec[i]]),params)
-        tot_val=tot_val+(1/data.shape[1])*(1/len(data))*value
-        grad_tot=grad_tot+(1/len(data))*grad
+        tot_val=tot_val+(1/arr.shape[0])*(1/len(mu_vec))*value
+        grad_tot=grad_tot+(1/len(mu_vec))*grad
     print("-----------------------------------------------------------------------------------------------------------")
-    print("DisPinn-Loss:,", np.sqrt(tot_val)/dem)
+    print("DisPinn-Loss:,", np.sqrt(tot_val)/np.linalg.norm(time_sim))
 
     updates, opt_state = optimizer.update(grad_tot, opt_state)
     params = optax.apply_updates(params, updates)
